@@ -3,7 +3,6 @@ name: Expire Posts
 on:
   schedule:
     - cron: "0 * * * *"
-
   workflow_dispatch:
 
 permissions:
@@ -19,150 +18,124 @@ jobs:
 
       - name: Remove expired posts
         run: |
-          node <<'EOF'
-          const fs = require("fs");
+          python3 - <<'PY'
+          import re
+          import json
+          from datetime import datetime, timedelta, timezone
 
-          const file = "App.js";
+          FILE = "App.js"
 
-          const PLAN_DAYS = {
-            FREE: 7,
-            PRO: 30,
-            PREMIUM: 90
-          };
-
-          console.log("Reading App.js...");
-
-          let content = fs.readFileSync(file, "utf8");
-
-          /*
-           * Read:
-           * const posts = [...]
-           */
-          const match = content.match(
-            /const\s+posts\s*=\s*(\[[\s\S]*\]);?\s*$/
-          );
-
-          if (!match) {
-            console.error("Could not find posts array in App.js");
-            process.exit(1);
+          PLAN_DAYS = {
+              "FREE": 7,
+              "PRO": 30,
+              "PREMIUM": 90
           }
 
-          let posts;
+          print("Reading App.js...")
 
-          try {
-            posts = Function(
-              `"use strict"; return ${match[1]}`
-            )();
-          } catch (error) {
-            console.error("Could not parse posts array.");
-            console.error(error);
-            process.exit(1);
-          }
+          with open(FILE, "r", encoding="utf-8") as f:
+              content = f.read()
 
-          if (!Array.isArray(posts)) {
-            console.error("posts is not an array.");
-            process.exit(1);
-          }
+          start = content.find("const posts = [")
+          end = content.rfind("];")
 
-          const now = new Date();
+          if start == -1 or end == -1:
+              print("ERROR: Could not find posts array in App.js")
+              raise SystemExit(1)
 
-          console.log(`Posts found: ${posts.length}`);
+          array_text = content[start + len("const posts = "):end + 1]
 
-          const remainingPosts = posts.filter(post => {
+          try:
+              posts = json.loads(array_text)
+          except Exception as error:
+              print("ERROR: App.js posts array is not valid JSON.")
+              print(error)
+              raise SystemExit(1)
 
-            /*
-             * No createdAt = never expire
-             */
-            if (!post.createdAt) {
-              console.log(
-                `KEEP ${post.id}: no createdAt`
-              );
-              return true;
-            }
+          if not isinstance(posts, list):
+              print("ERROR: posts is not an array.")
+              raise SystemExit(1)
 
-            /*
-             * Unknown plan = never expire
-             */
-            const days = PLAN_DAYS[post.plan];
+          now = datetime.now(timezone.utc)
 
-            if (!days) {
-              console.log(
-                `KEEP ${post.id}: unknown plan "${post.plan}"`
-              );
-              return true;
-            }
+          remaining = []
 
-            const created = new Date(
-              `${post.createdAt}T00:00:00Z`
-            );
+          for post in posts:
+              post_id = post.get("id")
+              plan = post.get("plan")
+              created_at = post.get("createdAt")
 
-            if (Number.isNaN(created.getTime())) {
-              console.log(
-                `KEEP ${post.id}: invalid createdAt`
-              );
-              return true;
-            }
+              if not created_at:
+                  print(f"KEEP {post_id}: no createdAt")
+                  remaining.append(post)
+                  continue
 
-            const expiry = new Date(
-              created.getTime() +
-              days * 24 * 60 * 60 * 1000
-            );
+              days = PLAN_DAYS.get(plan)
 
-            if (now >= expiry) {
-              console.log(
-                `DELETE ${post.id}: ${post.plan} expired`
-              );
-              return false;
-            }
+              if not days:
+                  print(f"KEEP {post_id}: unknown plan {plan}")
+                  remaining.append(post)
+                  continue
 
-            console.log(
-              `KEEP ${post.id}: expires ${expiry.toISOString()}`
-            );
+              try:
+                  created = datetime.strptime(
+                      created_at,
+                      "%Y-%m-%d"
+                  ).replace(tzinfo=timezone.utc)
+              except Exception:
+                  print(f"KEEP {post_id}: invalid createdAt")
+                  remaining.append(post)
+                  continue
 
-            return true;
-          });
+              expiry = created + timedelta(days=days)
 
-          const deleted =
-            posts.length - remainingPosts.length;
+              if now >= expiry:
+                  print(
+                      f"DELETE {post_id}: "
+                      f"{plan} expired on {expiry.isoformat()}"
+                  )
+              else:
+                  print(
+                      f"KEEP {post_id}: "
+                      f"expires on {expiry.isoformat()}"
+                  )
+                  remaining.append(post)
 
-          /*
-           * Only rewrite App.js if something was deleted.
-           */
-          if (deleted === 0) {
-            console.log("");
-            console.log("No expired posts.");
-            console.log("App.js will not be changed.");
-            process.exit(0);
-          }
+          deleted = len(posts) - len(remaining)
 
-          const newContent =
-`const posts = ${JSON.stringify(
-  remainingPosts,
-  null,
-  2
-)};
-`;
+          print("")
+          print("================================")
+          print("EXPIRY CHECK COMPLETE")
+          print("================================")
+          print(f"Posts before: {len(posts)}")
+          print(f"Posts after:  {len(remaining)}")
+          print(f"Deleted:      {deleted}")
+          print("================================")
 
-          fs.writeFileSync(
-            file,
-            newContent,
-            "utf8"
-          );
+          if deleted == 0:
+              print("No expired posts.")
+              raise SystemExit(0)
 
-          console.log("");
-          console.log("================================");
-          console.log("EXPIRY CHECK COMPLETE");
-          console.log("================================");
-          console.log(`Before:  ${posts.length}`);
-          console.log(`Deleted: ${deleted}`);
-          console.log(`After:   ${remainingPosts.length}`);
-          console.log("================================");
-          EOF
+          new_content = (
+              "const posts = "
+              + json.dumps(
+                  remaining,
+                  indent=2,
+                  ensure_ascii=False
+              )
+              + ";\n"
+          )
+
+          with open(FILE, "w", encoding="utf-8") as f:
+              f.write(new_content)
+
+          print("App.js updated successfully.")
+          PY
 
       - name: Commit changes
         run: |
           if git diff --quiet -- App.js; then
-            echo "Nothing to commit."
+            echo "No changes to commit."
             exit 0
           fi
 
@@ -170,7 +143,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add App.js
-
           git commit -m "Automatically remove expired posts"
-
           git push
