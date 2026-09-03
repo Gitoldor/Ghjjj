@@ -11,5 +11,18 @@ const posts = [
     link: "welcome.html",
     plan: "FREE",
     createdAt: "2026-09-03"
+  },
+  {
+    id: 2,
+    title: "Nkm",
+    topic: "Jk",
+    type: "",
+    subtype: "",
+    lat: 9999,
+    lng: 9999,
+    image: "https://picsum.photos/800/600",
+    link: "https://picsum.photos/800/600",
+    plan: "PREMIUM",
+    createdAt: "2026-09-03"
   }
 ];
