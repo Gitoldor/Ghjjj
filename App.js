@@ -11,5 +11,18 @@ const posts = [
     link: "welcome.html",
     plan: "FREE",
     createdAt: "2026-09-03"
+  },
+  {
+    id: 2,
+    title: "Yo",
+    topic: "Yo",
+    type: "",
+    subtype: "",
+    lat: 3,
+    lng: 3,
+    image: "https://api.github.com/repos/",
+    link: "https://api.github.com/repos/",
+    plan: "FREE",
+    createdAt: "2026-09-03"
   }
 ];
