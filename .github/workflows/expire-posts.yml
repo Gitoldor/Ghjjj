@@ -1,7 +1,6 @@
 name: Expire Posts
 
 on:
-
   schedule:
     - cron: "0 * * * *"
 
@@ -11,391 +10,59 @@ permissions:
   contents: write
 
 jobs:
-
   expire-posts:
-
+    name: Remove Expired Posts
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
+      - name: Check required files
+        run: |
+          echo "Checking files..."
+
+          if [ ! -f "App.js" ]; then
+            echo "ERROR: App.js not found."
+            exit 1
+          fi
+
+          if [ ! -f "expire-posts.js" ]; then
+            echo "ERROR: expire-posts.js not found."
+            exit 1
+          fi
+
+          echo "Required files found."
+
       - name: Remove expired posts
         run: |
-
-          node <<'NODE'
-
-          const fs = require("fs");
-
-          const file = "App.js";
-
-          /* =========================
-             PLAN LIFETIMES
-          ========================= */
-
-          const PLAN_DAYS = {
-
-            FREE: 7,
-
-            PRO: 30,
-
-            PREMIUM: 90
-
-          };
-
-
-          /* =========================
-             READ FILE
-          ========================= */
-
-          let content =
-            fs.readFileSync(
-              file,
-              "utf8"
-            );
-
-
-          /* =========================
-             FIND POSTS ARRAY
-          ========================= */
-
-          const start =
-            content.indexOf("[");
-
-          const end =
-            content.lastIndexOf("]");
-
-
-          if (
-            start === -1 ||
-            end === -1
-          ) {
-
-            throw new Error(
-              "Posts array not found."
-            );
-
-          }
-
-
-          /* =========================
-             LOAD POSTS
-          ========================= */
-
-          const arrayText =
-            content.slice(
-              start,
-              end + 1
-            );
-
-
-          let posts;
-
-
-          try {
-
-            /*
-              App.js uses JavaScript
-              object syntax, so we extract
-              individual objects below.
-            */
-
-            const objectMatches =
-              [
-                ...arrayText.matchAll(
-                  /\{[\s\S]*?\}/g
-                )
-              ];
-
-
-            posts =
-              objectMatches.map(
-                match => {
-
-                  const objectText =
-                    match[0];
-
-                  const id =
-                    Number(
-                      objectText.match(
-                        /\bid\s*:\s*(\d+)/
-                      )?.[1]
-                    );
-
-                  const title =
-                    JSON.parse(
-                      objectText.match(
-                        /title\s*:\s*(".*?")/
-                      )?.[1] || '""'
-                    );
-
-                  const topic =
-                    JSON.parse(
-                      objectText.match(
-                        /topic\s*:\s*(".*?")/
-                      )?.[1] || '""'
-                    );
-
-                  const type =
-                    JSON.parse(
-                      objectText.match(
-                        /type\s*:\s*(".*?")/
-                      )?.[1] || '""'
-                    );
-
-                  const subtype =
-                    JSON.parse(
-                      objectText.match(
-                        /subtype\s*:\s*(".*?")/
-                      )?.[1] || '""'
-                    );
-
-                  const lat =
-                    Number(
-                      objectText.match(
-                        /\blat\s*:\s*(-?\d+(?:\.\d+)?)/
-                      )?.[1]
-                    );
-
-                  const lng =
-                    Number(
-                      objectText.match(
-                        /\blng\s*:\s*(-?\d+(?:\.\d+)?)/
-                      )?.[1]
-                    );
-
-                  const image =
-                    JSON.parse(
-                      objectText.match(
-                        /image\s*:\s*(".*?")/
-                      )?.[1] || '""'
-                    );
-
-                  const link =
-                    JSON.parse(
-                      objectText.match(
-                        /link\s*:\s*(".*?")/
-                      )?.[1] || '""'
-                    );
-
-                  const plan =
-                    JSON.parse(
-                      objectText.match(
-                        /plan\s*:\s*(".*?")/
-                      )?.[1] || '"FREE"'
-                    );
-
-                  const createdAt =
-                    JSON.parse(
-                      objectText.match(
-                        /createdAt\s*:\s*(".*?")/
-                      )?.[1] || '""'
-                    );
-
-
-                  return {
-
-                    id,
-
-                    title,
-
-                    topic,
-
-                    type,
-
-                    subtype,
-
-                    lat,
-
-                    lng,
-
-                    image,
-
-                    link,
-
-                    plan,
-
-                    createdAt
-
-                  };
-
-                }
-              ];
-
-          }
-
-
-          catch (error) {
-
-            throw new Error(
-              "Could not parse App.js: " +
-              error.message
-            );
-
-          }
-
-
-          /* =========================
-             TODAY
-          ========================= */
-
-          const now =
-            new Date();
-
-
-          /* =========================
-             CHECK EXPIRATION
-          ========================= */
-
-          const remaining =
-            posts.filter(
-              post => {
-
-                /*
-                  Old posts without
-                  createdAt are kept.
-                */
-
-                if (
-                  !post.createdAt
-                ) {
-
-                  return true;
-
-                }
-
-
-                const days =
-                  PLAN_DAYS[
-                    post.plan
-                  ];
-
-
-                /*
-                  Unknown plan:
-                  keep the post.
-                */
-
-                if (!days) {
-
-                  return true;
-
-                }
-
-
-                const created =
-                  new Date(
-                    post.createdAt +
-                    "T00:00:00Z"
-                  );
-
-
-                const expiry =
-                  new Date(
-                    created.getTime() +
-                    days *
-                    24 *
-                    60 *
-                    60 *
-                    1000
-                  );
-
-
-                if (
-                  now >= expiry
-                ) {
-
-                  console.log(
-                    `Deleting post ${post.id} ` +
-                    `(${post.plan})`
-                  );
-
-                  return false;
-
-                }
-
-
-                return true;
-
-              }
-            );
-
-
-          /* =========================
-             REBUILD APP.JS
-          ========================= */
-
-          const output =
-`const posts = [
-${remaining.map(
-  (post, index) => `  {
-    id: ${post.id},
-    title: ${JSON.stringify(post.title)},
-    topic: ${JSON.stringify(post.topic)},
-    type: ${JSON.stringify(post.type)},
-    subtype: ${JSON.stringify(post.subtype)},
-    lat: ${post.lat},
-    lng: ${post.lng},
-    image: ${JSON.stringify(post.image)},
-    link: ${JSON.stringify(post.link)},
-    plan: ${JSON.stringify(post.plan)},
-    createdAt: ${JSON.stringify(post.createdAt)}
-  }`
-).join(",\n")}
-];
-`;
-
-
-          /* =========================
-             SAVE
-          ========================= */
-
-          fs.writeFileSync(
-            file,
-            output,
-            "utf8"
-          );
-
-
-          console.log(
-            `Posts before: ${posts.length}`
-          );
-
-          console.log(
-            `Posts after: ${remaining.length}`
-          );
-
-          console.log(
-            `Deleted: ${posts.length - remaining.length}`
-          );
-
-          NODE
+          echo "Starting expiry check..."
+          node expire-posts.js
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet App.js; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No expired posts found."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Expired posts were removed."
+          fi
 
       - name: Commit changes
+        if: steps.changes.outputs.changed == 'true'
         run: |
-
           git config user.name "github-actions[bot]"
-
-          git config user.email \
-            "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add App.js
 
-          if git diff --cached --quiet; then
+          git commit -m "Automatically remove expired posts"
 
-            echo "No expired posts."
-
-          else
-
-            git commit \
-              -m "Automatically remove expired posts"
-
-            git push
-
-          fi
+          git push
