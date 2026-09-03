@@ -2,7 +2,9 @@ name: Expire Posts
 
 on:
   schedule:
-    - cron: "0 * * * *"
+    # Runs automatically every day at 00:00 UTC
+    - cron: "0 0 * * *"
+
   workflow_dispatch:
 
 permissions:
@@ -16,7 +18,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check and remove expired posts
+      - name: Remove expired posts
         run: |
           node -e '
           const fs = require("fs");
@@ -30,12 +32,10 @@ jobs:
             PREMIUM: 90
           };
 
-          console.log("================================");
-          console.log("POST EXPIRY CHECK");
-          console.log("================================");
+          console.log("Starting expiry check...");
 
           if (!fs.existsSync(file)) {
-            console.error("ERROR: App.js was not found.");
+            console.error("App.js not found.");
             process.exit(1);
           }
 
@@ -49,7 +49,7 @@ jobs:
               sandbox
             );
           } catch (error) {
-            console.error("ERROR: Could not read posts from App.js.");
+            console.error("Could not read App.js");
             console.error(error.message);
             process.exit(1);
           }
@@ -57,14 +57,11 @@ jobs:
           const posts = sandbox.result;
 
           if (!Array.isArray(posts)) {
-            console.error("ERROR: posts is not an array.");
+            console.error("posts is not an array.");
             process.exit(1);
           }
 
-          console.log("Posts found:", posts.length);
-
           const now = new Date();
-
           const remainingPosts = [];
 
           for (const post of posts) {
@@ -102,7 +99,7 @@ jobs:
               console.log(
                 "KEEP:",
                 post.id,
-                "- invalid createdAt"
+                "- invalid date"
               );
 
               remainingPosts.push(post);
@@ -115,6 +112,7 @@ jobs:
             );
 
             if (now >= expiry) {
+
               console.log(
                 "DELETE:",
                 post.id,
@@ -123,7 +121,9 @@ jobs:
                 "|",
                 post.createdAt
               );
+
             } else {
+
               console.log(
                 "KEEP:",
                 post.id,
@@ -139,17 +139,12 @@ jobs:
             posts.length - remainingPosts.length;
 
           console.log("");
-          console.log("================================");
-          console.log("RESULT");
-          console.log("================================");
-          console.log("Before:", posts.length);
-          console.log("After:", remainingPosts.length);
+          console.log("Posts before:", posts.length);
+          console.log("Posts after:", remainingPosts.length);
           console.log("Deleted:", deleted);
-          console.log("================================");
 
           if (deleted === 0) {
             console.log("Nothing expired.");
-            console.log("App.js will not be changed.");
             process.exit(0);
           }
 
@@ -168,10 +163,10 @@ jobs:
             "utf8"
           );
 
-          console.log("App.js updated successfully.");
+          console.log("App.js updated.");
           '
 
-      - name: Commit changes if needed
+      - name: Commit and push changes
         run: |
           if git diff --quiet -- App.js; then
             echo "No changes to commit."
