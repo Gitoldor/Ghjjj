@@ -11,53 +11,161 @@ permissions:
 
 jobs:
   expire-posts:
-    name: Remove Expired Posts
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Check required files
-        run: |
-          echo "Checking files..."
-
-          if [ ! -f "App.js" ]; then
-            echo "ERROR: App.js not found."
-            exit 1
-          fi
-
-          if [ ! -f "expire-posts.js" ]; then
-            echo "ERROR: expire-posts.js not found."
-            exit 1
-          fi
-
-          echo "Required files found."
-
       - name: Remove expired posts
         run: |
-          echo "Starting expiry check..."
-          node expire-posts.js
+          node <<'EOF'
+          const fs = require("fs");
 
-      - name: Check for changes
-        id: changes
-        run: |
-          if git diff --quiet App.js; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No expired posts found."
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "Expired posts were removed."
-          fi
+          const file = "App.js";
+
+          const PLAN_DAYS = {
+            FREE: 7,
+            PRO: 30,
+            PREMIUM: 90
+          };
+
+          console.log("Reading App.js...");
+
+          let content = fs.readFileSync(file, "utf8");
+
+          /*
+           * Read:
+           * const posts = [...]
+           */
+          const match = content.match(
+            /const\s+posts\s*=\s*(\[[\s\S]*\]);?\s*$/
+          );
+
+          if (!match) {
+            console.error("Could not find posts array in App.js");
+            process.exit(1);
+          }
+
+          let posts;
+
+          try {
+            posts = Function(
+              `"use strict"; return ${match[1]}`
+            )();
+          } catch (error) {
+            console.error("Could not parse posts array.");
+            console.error(error);
+            process.exit(1);
+          }
+
+          if (!Array.isArray(posts)) {
+            console.error("posts is not an array.");
+            process.exit(1);
+          }
+
+          const now = new Date();
+
+          console.log(`Posts found: ${posts.length}`);
+
+          const remainingPosts = posts.filter(post => {
+
+            /*
+             * No createdAt = never expire
+             */
+            if (!post.createdAt) {
+              console.log(
+                `KEEP ${post.id}: no createdAt`
+              );
+              return true;
+            }
+
+            /*
+             * Unknown plan = never expire
+             */
+            const days = PLAN_DAYS[post.plan];
+
+            if (!days) {
+              console.log(
+                `KEEP ${post.id}: unknown plan "${post.plan}"`
+              );
+              return true;
+            }
+
+            const created = new Date(
+              `${post.createdAt}T00:00:00Z`
+            );
+
+            if (Number.isNaN(created.getTime())) {
+              console.log(
+                `KEEP ${post.id}: invalid createdAt`
+              );
+              return true;
+            }
+
+            const expiry = new Date(
+              created.getTime() +
+              days * 24 * 60 * 60 * 1000
+            );
+
+            if (now >= expiry) {
+              console.log(
+                `DELETE ${post.id}: ${post.plan} expired`
+              );
+              return false;
+            }
+
+            console.log(
+              `KEEP ${post.id}: expires ${expiry.toISOString()}`
+            );
+
+            return true;
+          });
+
+          const deleted =
+            posts.length - remainingPosts.length;
+
+          /*
+           * Only rewrite App.js if something was deleted.
+           */
+          if (deleted === 0) {
+            console.log("");
+            console.log("No expired posts.");
+            console.log("App.js will not be changed.");
+            process.exit(0);
+          }
+
+          const newContent =
+`const posts = ${JSON.stringify(
+  remainingPosts,
+  null,
+  2
+)};
+`;
+
+          fs.writeFileSync(
+            file,
+            newContent,
+            "utf8"
+          );
+
+          console.log("");
+          console.log("================================");
+          console.log("EXPIRY CHECK COMPLETE");
+          console.log("================================");
+          console.log(`Before:  ${posts.length}`);
+          console.log(`Deleted: ${deleted}`);
+          console.log(`After:   ${remainingPosts.length}`);
+          console.log("================================");
+          EOF
 
       - name: Commit changes
-        if: steps.changes.outputs.changed == 'true'
         run: |
+          if git diff --quiet -- App.js; then
+            echo "Nothing to commit."
+            exit 0
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
