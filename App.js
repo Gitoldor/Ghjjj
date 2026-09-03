@@ -24,5 +24,18 @@ const posts = [
     link: "https://picsum.photos/800/600",
     plan: "PREMIUM",
     createdAt: "2026-09-03"
+  },
+  {
+    id: 3,
+    title: "Yo",
+    topic: "Yo",
+    type: "",
+    subtype: "",
+    lat: 23688517,
+    lng: 66254478,
+    image: "https://picsum.photos/800/600",
+    link: "https://picsum.photos/800/600",
+    plan: "PRO",
+    createdAt: "2026-09-03"
   }
 ];
